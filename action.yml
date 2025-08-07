@@ -1,0 +1,364 @@
+name: 'Extract Version Information'
+description: 'Extracts and normalizes version information from git refs'
+
+inputs:
+  ref_name:
+    description: 'The git ref name to process'
+    required: true
+    default: ${{ github.ref_name }}
+  registry_username:
+    description: 'IQGeos Azure container registry username for logging into Azure'
+    required: true
+    type: string
+  registry_password:
+    description: 'IQGeos Azure container registry password for logging into Azure'
+    required: true
+    type: string
+
+outputs:
+  build_id:
+    description: 'Unique build identifier'
+    value: ${{ steps.build_id.outputs.build_id }}
+  is_release:
+    description: 'Whether this is a pre-release or release version'
+    value: ${{ steps.coalesce-strategies.outputs.is_release }}
+  minor_version:
+    description: 'Minor version (X.Y format)'
+    value: ${{ steps.extract-version.outputs.minor_version }}
+  major_version:
+    description: 'Major version (X format)'
+    value: ${{ steps.extract-version.outputs.major_version }}
+  shortened_version:
+    description: 'Shortened version for language packs repo'
+    value: ${{ steps.shortened_version.outputs.shortened_version }}
+  tag:
+    description: 'Primary tag (e.g., "1.2.3", "1.2alpha1")'
+    value: ${{ steps.coalesce-strategies.outputs.tag }}
+  tags:
+    description: 'Comma-separated list of all tags to apply'
+    value: ${{ steps.collect_tags.outputs.tags }}
+
+env:
+  # Registry Configuration
+  ACR_REGISTRY: "iqgeoproddev.azurecr.io"
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Analyze the git ref to determine what type of release this is
+      - name: identify tagging strategy
+        id: identify-tagging-strategy
+        shell: bash
+        run: |
+          # Check git ref pattern to determine strategy:
+          # - final: v1.2.3.final (production release)
+          # - pre-release: v1.2alpha1, v1.2beta1, v1.2rc1 (development release)
+          # - patch-rc: v1.2.3.rc1 (patch release candidate)
+          # - patch: patch/v99/TICKET-123 branch (patch development)
+          if [[ ${{ inputs.ref_name }} =~ ^v[0-9]+\.[0-9]+.[0-9]+\.final$ ]]; then
+            echo "Tagging strategy: Final Release"
+            echo "strategy=final" >> $GITHUB_OUTPUT
+          elif [[ ${{ inputs.ref_name }} =~ ^v[0-9]+\.[0-9]+\.(alpha|beta|rc)[0-9]+$ ]]; then
+            echo "Tagging strategy: Pre-release"
+            echo "strategy=pre-release" >> $GITHUB_OUTPUT
+          elif [[ ${{ inputs.ref_name }} =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.rc[0-9]+$ ]]; then
+            echo "Tagging strategy: PatchRelease Candidate"
+            echo "strategy=patch-rc" >> $GITHUB_OUTPUT
+          elif [[ -n "${{ github.head_ref }}" && "${{ github.head_ref }}" =~ ^patch/v[0-9]+/.+$ ]]; then
+            echo "Tagging strategy: Patch"
+            echo "strategy=patch" >> $GITHUB_OUTPUT
+          else
+            echo "Tagging strategy: Unknown"
+            echo "strategy=unknown" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 2a: Handle final release tags (e.g., v1.2.3.final)
+      # Extracts clean semantic version and marks as production release
+      - name: tagging-final
+        id: tagging-final
+        shell: bash
+        if: ${{ steps.identify-tagging-strategy.outputs.strategy == 'final' }}
+        run: |
+            # Extract semantic version from v1.2.3.final -> 1.2.3
+            TAG=$(echo "${{ inputs.ref_name }}" | sed -n 's/v\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT         
+      
+      # Step 2b: Handle pre-release tags (e.g., v1.2.alpha1, v1.2.beta1, v1.2.rc1)
+      # Extracts version with pre-release identifier and marks as development release
+      - name: tagging-pre-release
+        id: tagging-pre-release
+        shell: bash
+        if: ${{ steps.identify-tagging-strategy.outputs.strategy == 'pre-release' }}
+        run: |
+            # Extract version with pre-release suffix from v1.2alpha1 -> 1.2alpha1
+            TAG=$(echo "${{ inputs.ref_name }}" | sed -n 's/v\([0-9]\+\.[0-9]\+\.[alpha|beta|rc]\+[0-9]\+\).*/\1/p')
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+      
+      # Step 2c: Handle patch release candidate tags (e.g., v1.2.3.rc1)
+      # Extracts full version with rc suffix and marks as development release
+      - name: tagging-patch-rc
+        id: tagging-patch-rc
+        shell: bash
+        if: ${{ steps.identify-tagging-strategy.outputs.strategy == 'patch-rc' }}
+        run: |
+            # Extract patch RC version from v1.2.3.rc1 -> 1.2.3.rc1
+            TAG=$(echo "${{ inputs.ref_name }}" | sed -n 's/v\([0-9]\+\.[0-9]\+\.[0-9]\+\.rc\+[0-9]\+\).*/\1/p')
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT        
+      
+      # Step 2d: Handle patch branch builds (e.g., patch/v99/TICKET-123)
+      # Creates compound version from branch structure and marks as development release
+      - name: tagging-patch
+        id: tagging-patch
+        shell: bash
+        if: ${{ steps.identify-tagging-strategy.outputs.strategy == 'patch' }}
+        run: |
+            # Extract version from patch/v99/TICKET-123 -> 9.9
+            VERSION=$(echo "${{ github.head_ref }}" | sed -n 's/patch\/v\([0-9]\)\([0-9]\)\/.*$/\1.\2/p')
+            # Extract ticket from patch/v99/TICKET-123 -> TICKET-123
+            TICKET=$(echo "${{ github.head_ref }}" | sed -n 's/patch\/v[0-9]\+\/\(.*\)$/\1/p')
+            # Combine into compound tag: 9.9.TICKET-123
+            echo "tag=$VERSION.$TICKET" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+
+      # Step 3: Coalesce results from strategy-specific steps into single output
+      # Only one of the above steps will have run, so combine their outputs
+      - name: coalesce-strategies
+        id: coalesce-strategies
+        shell: bash
+        run: |
+          # Check each strategy step and use the one that produced output
+          if [[ "${{ steps.tagging-final.outputs.tag }}" != "" ]]; then
+            echo "tag=${{ steps.tagging-final.outputs.tag }}" >> $GITHUB_OUTPUT
+            echo "is_release=${{ steps.tagging-final.outputs.is_release }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.tagging-pre-release.outputs.tag }}" != ""  ]]; then
+            echo "tag=${{ steps.tagging-pre-release.outputs.tag }}" >> $GITHUB_OUTPUT
+            echo "is_release=${{ steps.tagging-pre-release.outputs.is_release }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.tagging-patch-rc.outputs.tag }}" != "" ]]; then
+            echo "tag=${{ steps.tagging-patch-rc.outputs.tag }}" >> $GITHUB_OUTPUT
+            echo "is_release=${{ steps.tagging-patch-rc.outputs.is_release }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.tagging-patch.outputs.tag }}" != "" ]]; then
+            echo "tag=${{ steps.tagging-patch.outputs.tag }}" >> $GITHUB_OUTPUT
+            echo "is_release=${{ steps.tagging-patch.outputs.is_release }}" >> $GITHUB_OUTPUT
+          else
+            # Fallback: use the raw git ref name
+            echo "tag=${{ inputs.ref_name }}" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+      
+      # Step 4: Extract semantic version components for tag generation
+      # Parses the tag to extract major, minor, patch version numbers
+      - name: extract-version
+        id: extract-version
+        shell: bash
+        run: |
+          TAG="${{ steps.coalesce-strategies.outputs.tag }}"
+          # Try to match different version patterns and extract components
+          if [[ $TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+              # Full semantic version: X.Y.Z
+              MAJOR_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\1/p')
+              MINOR_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\2/p')
+              PATCH_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\3/p')
+
+          elif [[ $TAG =~ ^[0-9]+\.[0-9]+.*$ ]]; then
+              # Major.Minor version: X.Y
+              MAJOR_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\).*/\1/p')
+              MINOR_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\).*/\2/p')
+
+          elif [[ $TAG =~ ^[0-9]+.*$ ]]; then
+              # Major version only: X
+              MAJOR_VERSION=$(echo "$TAG" | sed -n 's/\([0-9]\+\).*/\1/p')
+
+          fi
+
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+          echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
+          echo "patch_version=$PATCH_VERSION" >> $GITHUB_OUTPUT
+
+      # Step 5: Install required tools for registry interaction
+      # Skopeo: Tool for inspecting and copying container images
+      # jq: JSON processor for parsing registry API responses
+      - name: install-skopeo-jq
+        id: install-skopeo-jq
+        shell: bash
+        run: |
+            sudo apt-get update && sudo apt-get install -y skopeo jq
+
+      # Step 6: Determine the current latest semantic version in registry
+      # Queries the ACR registry to find the highest semantic version tag
+      # This helps determine increment strategies
+      - name: determine-current-latest
+        id: determine-current-latest
+        shell: bash
+        run: |
+          # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
+          LATEST_IMAGE=iqgeoproddev.azurecr.io/workflow_manager
+          LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE | jq -r '.Tags[]')
+          SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
+                    
+          # Sort semantic versions and get the latest one
+          LATEST_TAG=$(echo "$SEMVER_TAGS" | sort -V | tail -n1)
+          
+          # Extract version components from the latest tag
+          MAJOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\1/p')
+          MINOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\2/p')
+          PATCH_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\3/p')
+
+          echo "Latest semantic version tag is: $LATEST_TAG"
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+          echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
+          echo "patch_version=$PATCH_VERSION" >> $GITHUB_OUTPUT
+        env:
+          REGISTRY_USERNAME: ${{ inputs.registry_username }}
+          REGISTRY_PASWORD: ${{ inputs.registry_password}}
+
+      # Step 7: Add 'latest' tag for release versions if they are truly latest
+      # Compares current version with existing registry version to determine if this is the newest
+      - name: add_latest_tag
+        id: add_latest_tag
+        shell: bash
+        if: ${{ steps.coalesce-strategies.outputs.is_release == 'true' }}
+        run: |
+          # Get version components from current build
+          MAJOR_VERSION="${{ steps.extract-version.outputs.major_version }}"
+          MINOR_VERSION="${{ steps.extract-version.outputs.minor_version }}"
+          PATCH_VERSION="${{ steps.extract-version.outputs.patch_version }}"
+          
+          # Get latest version components from registry
+          LATEST_MAJOR_VERSION="${{ steps.determine-current-latest.outputs.major_version }}"
+          LATEST_MINOR_VERSION="${{ steps.determine-current-latest.outputs.minor_version }}"
+          LATEST_PATCH_VERSION="${{ steps.determine-current-latest.outputs.patch_version }}"
+          
+          # Compare versions to determine if this is the latest release
+          IS_LATEST=false
+          
+          # Check if major version is newer
+          if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -gt ${LATEST_MAJOR_VERSION} ]]; then
+              IS_LATEST=true
+          # Check if major version is same but minor version is newer  
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
+              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -gt ${LATEST_MINOR_VERSION} ]]; then
+              IS_LATEST=true
+          # Check if major.minor same but patch version is newer
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
+              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -ge ${LATEST_MINOR_VERSION} ]]  && \
+              [[ -n "${PATCH_VERSION}" && "${PATCH_VERSION}" -gt ${LATEST_PATCH_VERSION} ]]; then
+              IS_LATEST=true
+          fi
+          
+          # Output 'latest' tag only if this version is truly the newest
+          if [[ ${IS_LATEST} == true  ]]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "Not Latest"
+          fi
+
+      # Step 8: Add 'pre-release' tag for development versions that are newer than latest
+      # Only applies to non-release builds that represent newer functionality
+      - name: add_prerelease_tag
+        id: add_prerelease_tag
+        shell: bash
+        if: ${{ steps.coalesce-strategies.outputs.is_release == 'false' }}
+        run: |
+          # Get version components from current build
+          MAJOR_VERSION="${{ steps.extract-version.outputs.major_version }}"
+          MINOR_VERSION="${{ steps.extract-version.outputs.minor_version }}"
+          
+          # Get latest released version components from registry
+          LATEST_MAJOR_VERSION="${{ steps.determine-current-latest.outputs.major_version }}"
+          LATEST_MINOR_VERSION="${{ steps.determine-current-latest.outputs.minor_version }}"
+          
+          # Determine if this development version represents newer functionality
+          IS_PRERELEASE=false
+          
+          # Check if major version is newer than latest release
+          if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -gt ${LATEST_MAJOR_VERSION} ]]; then
+              IS_PRERELEASE=true
+          # Check if major version is same but minor version is newer than latest release
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
+              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -gt ${LATEST_MINOR_VERSION} ]]; then
+              IS_PRERELEASE=true
+          fi
+          
+          # Output 'pre-release' tag for development builds that are ahead of latest release
+          if [[ ${IS_PRERELEASE} == true  ]]; then
+            echo "tag=pre-release" >> $GITHUB_OUTPUT
+          else
+            echo "Not Pre-release"
+          fi
+
+
+      # Step 9: Generate a unique build ID based on run number and date
+      - name: Generate Build Number
+        id: build_id
+        shell: bash
+        run: |
+          RUN_NUMBER=$(echo ${{ github.run_number }} | rev | cut -c1-2 | rev)
+          RUN_DATE=$(date +%Y%m%d)
+          BUILD_ID="${{ steps.coalesce-strategies.outputs.tag }}-${RUN_DATE}.${RUN_NUMBER}"
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+          echo "Generated build_id: $BUILD_ID"
+
+      # Step 10: Collect and consolidate all tags for the final artifact
+      # Combines the primary tag with additional version tags and special tags (latest/pre-release)
+      - name: collect_tags
+        id: collect_tags
+        shell: bash
+        run: |
+          # Start with the primary tag determined by the strategy
+          TAGS=${{ steps.coalesce-strategies.outputs.tag }}
+          
+          # For release builds, add hierarchical version tags (major, major.minor)
+          if [[ "${{steps.coalesce-strategies.outputs.is_release}}" == 'true' ]]; then
+            # Add major version tag (e.g., "2") if this qualifies for 'latest'
+            if [[ -n "${{ steps.add_latest_tag.outputs.tag }}" && -n "${{ steps.extract-version.outputs.major_version }}" ]]; then
+              TAGS="${TAGS},${{ steps.extract-version.outputs.major_version }}"
+              echo "Adding major version: ${TAGS}"
+            fi
+            # Add major.minor version tag (e.g., "2.1") for release builds
+            if [[ -n "${{ steps.extract-version.outputs.minor_version }}" ]]; then
+              TAGS="${TAGS},${{ steps.extract-version.outputs.major_version }}.${{ steps.extract-version.outputs.minor_version }}"
+              echo "Adding minor version: ${TAGS}"
+            fi
+          fi
+
+          # Add special tags: 'latest' for newest releases or 'pre-release' for development
+          if [[ -n "${{ steps.add_latest_tag.outputs.tag }}" ]]; then
+            TAGS="${TAGS},${{ steps.add_latest_tag.outputs.tag }}"
+            echo "Adding latest: ${TAGS}"
+          elif [[ -n "${{ steps.add_prerelease_tag.outputs.tag }}" ]]; then
+            TAGS="${TAGS},${{ steps.add_prerelease_tag.outputs.tag }}"
+            echo "Adding pre-release: ${TAGS}"
+          fi
+          
+          TAGS="${TAGS},${{ steps.build_id.outputs.build_id }}"
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      # Step 11: Use major and minor version to create shortened version for language packs directory
+      # Injector builds require copying the language packs from the utils-language-pack repo based on this shortened version
+      - name: shortened version
+        id: shortened_version
+        shell: bash
+        run: |
+          SHORTENED_VERISON="v${{ steps.extract-version.outputs.major_version }}${{ steps.extract-version.outputs.minor_version }}"
+          echo "Shortened Version=$SHORTENED_VERISON"
+          echo "shortened_version=$SHORTENED_VERISON" >> $GITHUB_OUTPUT
+          
+      # Step 12: Output final results for debugging and verification
+      # Displays all computed values for troubleshooting the tagging strategy
+      - name: sanity-check
+        shell: bash
+        run: |
+          echo "build_id=${{ steps.build_id.outputs.build_id }}"
+          echo "Tagging Strategy: ${{ steps.identify-tagging-strategy.outputs.strategy }}"
+          echo "is_release=${{ steps.coalesce-strategies.outputs.is_release }}"
+          echo "tag=${{ steps.coalesce-strategies.outputs.tag }}"
+          echo "tags=${{ steps.collect_tags.outputs.tags }}"
+          echo "major_version=${{ steps.extract-version.outputs.major_version }}"
+          echo "minor_version=${{ steps.extract-version.outputs.minor_version }}"
+          echo "patch_version=${{ steps.extract-version.outputs.patch_version }}"
+          
+          # This comprehensive tagging strategy provides semantic version management
+          # across development, pre-release, and production release cycles
