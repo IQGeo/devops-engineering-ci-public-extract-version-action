@@ -2,6 +2,9 @@ name: 'Extract Version Information'
 description: 'Extracts and normalizes version information from git refs'
 
 inputs:
+  module:
+    description: 'Module used to query ACR with skopeo to determine latest tag'
+    required: true
   ref_name:
     description: 'The git ref name to process'
     required: true
@@ -22,12 +25,12 @@ outputs:
   is_release:
     description: 'Whether this is a pre-release or release version'
     value: ${{ steps.coalesce-strategies.outputs.is_release }}
-  minor_version:
-    description: 'Minor version (X.Y format)'
-    value: ${{ steps.extract-version.outputs.minor_version }}
   major_version:
     description: 'Major version (X format)'
     value: ${{ steps.extract-version.outputs.major_version }}
+  minor_version:
+    description: 'Minor version (X.Y format)'
+    value: ${{ steps.extract-version.outputs.minor_version }}
   shortened_version:
     description: 'Shortened version for language packs repo'
     value: ${{ steps.shortened_version.outputs.shortened_version }}
@@ -194,7 +197,7 @@ runs:
         shell: bash
         run: |
           # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
-          LATEST_IMAGE=iqgeoproddev.azurecr.io/workflow_manager
+          LATEST_IMAGE=iqgeoproddev.azurecr.io/$MODULE
           LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE | jq -r '.Tags[]')
           SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
                     
@@ -211,6 +214,7 @@ runs:
           echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
           echo "patch_version=$PATCH_VERSION" >> $GITHUB_OUTPUT
         env:
+          MODULE: ${{ inputs.module}}
           REGISTRY_USERNAME: ${{ inputs.registry_username }}
           REGISTRY_PASWORD: ${{ inputs.registry_password}}
 
