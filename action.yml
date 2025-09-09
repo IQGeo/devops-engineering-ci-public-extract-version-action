@@ -17,6 +17,10 @@ inputs:
     description: 'IQGeos Azure container registry password for logging into Azure'
     required: true
     type: string
+  engineering_prefix:
+    description: 'Engineering prefix to place multi arch images in Harbor'
+    type: string
+    default: devops_sandbox_engineering
 
 outputs:
   build_id:
@@ -197,7 +201,7 @@ runs:
         shell: bash
         run: |
           # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
-          LATEST_IMAGE=iqgeoproddev.azurecr.io/$MODULE
+          LATEST_IMAGE=$ACR_REGISTRY/$ENGINEERING_PREFIX/$MODULE
           LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE | jq -r '.Tags[]')
           SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
                     
@@ -217,6 +221,7 @@ runs:
           MODULE: ${{ inputs.module}}
           REGISTRY_USERNAME: ${{ inputs.registry_username }}
           REGISTRY_PASWORD: ${{ inputs.registry_password}}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
       # Step 7: Add 'latest' tag for release versions if they are truly latest
       # Compares current version with existing registry version to determine if this is the newest
