@@ -47,6 +47,10 @@ outputs:
   tags:
     description: 'Comma-separated list of all tags to apply'
     value: ${{ steps.collect_tags.outputs.tags }}
+  namespace:
+    description: 'Namespace to redeploy image to EKS'
+    value: ${{ steps.coalesce-strategies.outputs.namespace }}
+    default: ''
 
 env:
   # Registry Configuration
@@ -143,9 +147,11 @@ runs:
           if [[ "${{ steps.tagging-final.outputs.tag }}" != "" ]]; then
             echo "tag=${{ steps.tagging-final.outputs.tag }}" >> $GITHUB_OUTPUT
             echo "is_release=${{ steps.tagging-final.outputs.is_release }}" >> $GITHUB_OUTPUT
+            echo "namespace=pmg-stable" >> $GITHUB_OUTPUT
           elif [[ "${{ steps.tagging-pre-release.outputs.tag }}" != ""  ]]; then
             echo "tag=${{ steps.tagging-pre-release.outputs.tag }}" >> $GITHUB_OUTPUT
             echo "is_release=${{ steps.tagging-pre-release.outputs.is_release }}" >> $GITHUB_OUTPUT
+            echo "namespace=pmg-pre" >> $GITHUB_OUTPUT
           elif [[ "${{ steps.tagging-patch-rc.outputs.tag }}" != "" ]]; then
             echo "tag=${{ steps.tagging-patch-rc.outputs.tag }}" >> $GITHUB_OUTPUT
             echo "is_release=${{ steps.tagging-patch-rc.outputs.is_release }}" >> $GITHUB_OUTPUT
