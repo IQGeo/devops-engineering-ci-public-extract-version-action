@@ -48,9 +48,8 @@ outputs:
     description: 'Comma-separated list of all tags to apply'
     value: ${{ steps.collect_tags.outputs.tags }}
   namespace:
-    description: 'Namespace to redeploy image to EKS'
+    description: 'Namespace to redeploy image to EKS; defaults to empty string if not applicable which skips redeploy to PMG step'
     value: ${{ steps.coalesce-strategies.outputs.namespace }}
-    default: ''
 
 env:
   # Registry Configuration
@@ -143,6 +142,8 @@ runs:
         id: coalesce-strategies
         shell: bash
         run: |
+          # Set default namespace to empty
+          echo "namespace=" >> $GITHUB_OUTPUT
           # Check each strategy step and use the one that produced output
           if [[ "${{ steps.tagging-final.outputs.tag }}" != "" ]]; then
             echo "tag=${{ steps.tagging-final.outputs.tag }}" >> $GITHUB_OUTPUT
