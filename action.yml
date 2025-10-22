@@ -213,18 +213,32 @@ runs:
           # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
           LATEST_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE/$MODULE
           echo "Latest Image: $LATEST_IMAGE"
-          LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE | jq -r '.Tags[]')
-          SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
-                    
-          # Sort semantic versions and get the latest one
-          LATEST_TAG=$(echo "$SEMVER_TAGS" | sort -V | tail -n1)
           
-          # Extract version components from the latest tag
-          MAJOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\1/p')
-          MINOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\2/p')
-          PATCH_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\3/p')
+          # Get all tags from registry, handle case where registry is empty or image doesn't exist yet
+          LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE 2>/dev/null | jq -r '.Tags[]' || echo "")
+          
+          # Filter to only semantic version tags (X.Y.Z format), don't fail if no matches found
+          SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          
+          # Check if any semantic version tags exist
+          if [[ -z "$SEMVER_TAGS" ]]; then
+            echo "No semantic version tags found in registry. This may be a new repository."
+            echo "Setting default values (0.0.0) for version comparison."
+            MAJOR_VERSION="0"
+            MINOR_VERSION="0"
+            PATCH_VERSION="0"
+            LATEST_TAG="0.0.0"
+          else
+            # Sort semantic versions and get the latest one
+            LATEST_TAG=$(echo "$SEMVER_TAGS" | sort -V | tail -n1)
+            
+            # Extract version components from the latest tag
+            MAJOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\1/p')
+            MINOR_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\2/p')
+            PATCH_VERSION=$(echo "$LATEST_TAG" | sed -n 's/\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\).*/\3/p')
+            echo "Latest semantic version tag is: $LATEST_TAG"
+          fi
 
-          echo "Latest semantic version tag is: $LATEST_TAG"
           echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
           echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
           echo "patch_version=$PATCH_VERSION" >> $GITHUB_OUTPUT
