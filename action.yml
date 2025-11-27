@@ -7,7 +7,10 @@ inputs:
     type: string
   module:
     description: 'Module used to query ACR with skopeo to determine latest tag'
-    required: true
+    type: string
+  image_reference:
+    description: 'Reference to image used to query ACR with skopeo to determine latest tag'
+    type: string
   ref_name:
     description: 'The git ref name to process'
     required: true
@@ -211,7 +214,7 @@ runs:
         shell: bash
         run: |
           # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
-          LATEST_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE/$MODULE
+          LATEST_IMAGE=$ACR/$ENGINEERING_PREFIX/${IMAGE_REFERENCES:-${MODULE}/${MODULE}}
           echo "Latest Image: $LATEST_IMAGE"
           
           # Get all tags from registry, handle case where registry is empty or image doesn't exist yet
@@ -243,11 +246,12 @@ runs:
           echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
           echo "patch_version=$PATCH_VERSION" >> $GITHUB_OUTPUT
         env:
-          MODULE: ${{ inputs.module}}
           REGISTRY_USERNAME: ${{ inputs.registry_username }}
-          REGISTRY_PASWORD: ${{ inputs.registry_password}}
-          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          REGISTRY_PASSWORD: ${{ inputs.registry_password }}
           ACR: ${{ inputs.acr }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          IMAGE_REFERENCES: ${{ inputs.image_reference }}
+          MODULE: ${{ inputs.module}}
 
       # Step 7: Add 'latest' tag for release versions if they are truly latest
       # Compares current version with existing registry version to determine if this is the newest
