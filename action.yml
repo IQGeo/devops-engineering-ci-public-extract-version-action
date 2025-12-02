@@ -219,9 +219,11 @@ runs:
           
           # Get all tags from registry, handle case where registry is empty or image doesn't exist yet
           LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE 2>/dev/null | jq -r '.Tags[]' || echo "")
-          
+          echo "Latest tags: $LATEST_TAGS"
+
           # Filter to only semantic version tags (X.Y.Z format), don't fail if no matches found
           SEMVER_TAGS=$(echo "$LATEST_TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          echo "Semver tags: $SEMVER_TAGS"
           
           # Check if any semantic version tags exist
           if [[ -z "$SEMVER_TAGS" ]]; then
