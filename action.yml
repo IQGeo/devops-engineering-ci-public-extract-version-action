@@ -214,7 +214,7 @@ runs:
         shell: bash
         run: |
           # Target the ACR registry, get all tags, and filter to only semantic version tags (X.Y.Z format)
-          LATEST_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE/$MODULE
+          LATEST_IMAGE=$ACR/$ENGINEERING_PREFIX/${IMAGE_REFERENCES:-${MODULE}/${MODULE}}
           echo "Latest Image: $LATEST_IMAGE"
           
           # Get all tags from registry, handle case where registry is empty or image doesn't exist yet
