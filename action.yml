@@ -218,7 +218,7 @@ runs:
           echo "Latest Image: $LATEST_IMAGE"
           
           # Get all tags from registry, handle case where registry is empty or image doesn't exist yet
-          LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASWORD docker://$LATEST_IMAGE 2>/dev/null | jq -r '.Tags[]' || echo "")
+          LATEST_TAGS=$(skopeo list-tags --creds $REGISTRY_USERNAME:$REGISTRY_PASSWORD docker://$LATEST_IMAGE 2>/dev/null | jq -r '.Tags[]' || echo "")
           echo "Latest tags: $LATEST_TAGS"
 
           # Filter to only semantic version tags (X.Y.Z format), don't fail if no matches found
