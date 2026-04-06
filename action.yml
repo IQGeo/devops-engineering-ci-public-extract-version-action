@@ -274,7 +274,7 @@ runs:
           IS_LATEST=false
           
           # Check if major version is newer
-          if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -gt ${LATEST_MAJOR_VERSION} ]]; then
+          if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]]; then
               IS_LATEST=true
           # Check if major version is same but minor version is newer  
           elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
