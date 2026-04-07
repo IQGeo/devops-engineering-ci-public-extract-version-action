@@ -317,7 +317,7 @@ runs:
               IS_PRERELEASE=true
           # Check if major version is same but minor version is newer than latest release
           elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
-              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -gt ${LATEST_MINOR_VERSION} ]]; then
+              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -ge ${LATEST_MINOR_VERSION} ]]; then
               IS_PRERELEASE=true
           fi
           
