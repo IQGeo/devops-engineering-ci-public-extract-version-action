@@ -276,14 +276,14 @@ runs:
           # Check if major version is newer
           if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -gt ${LATEST_MAJOR_VERSION} ]]; then
               IS_LATEST=true
-          # Check if major version is same but minor version is newer  
-          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
+          # Check if major version is same but minor version is newer
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -eq ${LATEST_MAJOR_VERSION} ]] && \
               [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -gt ${LATEST_MINOR_VERSION} ]]; then
               IS_LATEST=true
-          # Check if major.minor same but patch version is newer
-          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
-              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -ge ${LATEST_MINOR_VERSION} ]]  && \
-              [[ -n "${PATCH_VERSION}" && "${PATCH_VERSION}" -gt ${LATEST_PATCH_VERSION} ]]; then
+          # Check if major.minor same but patch version is same or newer
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -eq ${LATEST_MAJOR_VERSION} ]] && \
+              [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -eq ${LATEST_MINOR_VERSION} ]] && \
+              [[ -n "${PATCH_VERSION}" && "${PATCH_VERSION}" -ge ${LATEST_PATCH_VERSION} ]]; then
               IS_LATEST=true
           fi
           
@@ -316,7 +316,7 @@ runs:
           if [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -gt ${LATEST_MAJOR_VERSION} ]]; then
               IS_PRERELEASE=true
           # Check if major version is same but minor version is newer than latest release
-          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -ge ${LATEST_MAJOR_VERSION} ]] && \
+          elif [[ -n ${MAJOR_VERSION} && ${MAJOR_VERSION} -eq ${LATEST_MAJOR_VERSION} ]] && \
               [[ -n ${MINOR_VERSION} && ${MINOR_VERSION} -gt ${LATEST_MINOR_VERSION} ]]; then
               IS_PRERELEASE=true
           fi
