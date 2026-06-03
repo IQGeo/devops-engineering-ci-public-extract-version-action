@@ -54,10 +54,6 @@ outputs:
     description: 'Environment suffix for the per-product namespace (pre or stable); downstream constructs pmg-{product}-{suffix}. Defaults to empty string if not applicable which skips redeploy to PMG step'
     value: ${{ steps.coalesce-strategies.outputs.namespace }}
 
-env:
-  # Registry Configuration
-  ACR_REGISTRY: "iqgeoproddev.azurecr.io"
-
 runs:
   using: "composite"
   steps:
